@@ -5,6 +5,7 @@ import { createInterface } from "node:readline";
 import type { ChildProcess } from "node:child_process";
 import type { Logger } from "pino";
 import type { Session } from "../../sessions/types.js";
+import { buildChildEnv } from "../../config/env.js";
 import { buildCodexPrompt, buildEnginePromptParts } from "../prompt.js";
 import type { BotIdentity, EngineAdapter, EngineEvent, EngineProcess, EngineRuntimeConfig } from "../types.js";
 import {
@@ -256,7 +257,8 @@ export class CodexEngineAdapter implements EngineAdapter {
     const proc = spawn(cmd, args, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: input.cwd,
-      env: { ...process.env },
+      // Gateway secrets (.env keys, Telegram token) are withheld from the agent.
+      env: buildChildEnv(),
     });
 
     proc.stdin?.on("error", (err) => {

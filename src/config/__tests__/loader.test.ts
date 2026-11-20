@@ -8,8 +8,23 @@ describe("expandEnvVars", () => {
     delete process.env.TEST_TOKEN;
   });
 
-  it("leaves unset vars as empty string", () => {
-    expect(expandEnvVars("${NONEXISTENT_VAR}")).toBe("");
+  it("fails closed on unset vars, naming the variable", () => {
+    expect(() => expandEnvVars("${NONEXISTENT_VAR}")).toThrow(/NONEXISTENT_VAR/);
+  });
+
+  it("fails closed on empty vars without printing other values", () => {
+    process.env.TEST_SECRET_SET = "s3cr3t-value";
+    process.env.TEST_EMPTY = "";
+    let message = "";
+    try {
+      expandEnvVars("a: ${TEST_SECRET_SET}\nb: ${TEST_EMPTY}");
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/TEST_EMPTY/);
+    expect(message).not.toMatch(/TEST_SECRET_SET|s3cr3t-value/);
+    delete process.env.TEST_SECRET_SET;
+    delete process.env.TEST_EMPTY;
   });
 });
 

@@ -35,8 +35,30 @@ bots:
     token: "\${TELEGRAM_BOT_TOKEN}"   # set env var or paste token here
 `;
 
+/** Names of ${VAR} references in the input that are unset or empty. */
+export function missingEnvVars(input: string): string[] {
+  const missing = new Set<string>();
+  for (const match of input.matchAll(/\$\{([^}]+)\}/g)) {
+    const name = match[1];
+    if (!process.env[name]) missing.add(name);
+  }
+  return [...missing];
+}
+
+/**
+ * Expand ${VAR} references from the environment.
+ * Fails closed: an unset or empty variable is an error naming the variable
+ * (never its value), instead of silently becoming an empty string.
+ */
 export function expandEnvVars(input: string): string {
-  return input.replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] ?? "");
+  const missing = missingEnvVars(input);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variable(s): ${missing.join(", ")}. ` +
+      `Set them in the .env file next to config.yaml or in the environment.`,
+    );
+  }
+  return input.replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] as string);
 }
 
 export function parseConfig(yamlStr: string): GatewayConfig {

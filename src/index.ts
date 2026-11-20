@@ -22,8 +22,14 @@ import {
   unlinkSync,
   renameSync,
 } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
+import { defaultConfigPath, envFilePath, loadDotEnv } from "./config/env.js";
+import { runDoctor, runSetup } from "./setup.js";
+
+// Files created by the gateway (logs, message history, state) are private to the owner.
+process.umask(0o077);
 
 const program = new Command();
 
@@ -31,6 +37,59 @@ program
   .name("opencodex")
   .description("Gateway bridging chat platforms to Codex CLI")
   .version("0.1.0");
+
+// Load the .env next to the config before any command reads the config.
+program.hook("preAction", (_root, actionCommand) => {
+  const opts = actionCommand.opts() as { config?: string };
+  loadDotEnv(envFilePath(opts.config));
+});
+
+program
+  .command("setup")
+  .description("Create a private, ready-to-run configuration (idempotent)")
+  .option("-c, --config <path>", "Path to config file", defaultConfigPath())
+  .option("--bot-name <name>", "Bot name for a newly generated config", "plane-agent")
+  .option("--codex-binary <path>", "Codex binary for a newly generated config", "codex")
+  .action((opts: { config: string; botName: string; codexBinary: string }) => {
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const report = runSetup({
+      configPath: opts.config,
+      repoRoot,
+      botName: opts.botName,
+      codexBinary: opts.codexBinary,
+    });
+    for (const p of report.created) console.log(`  created  ${p}`);
+    for (const p of report.kept) console.log(`  kept     ${p}`);
+    for (const p of report.fixed) console.log(`  fixed    ${p}`);
+    for (const w of report.warnings) console.log(`  warning  ${w}`);
+    console.log("");
+    console.log("Next steps:");
+    if (report.emptyVars.length > 0) {
+      console.log(`  1. Fill ${report.emptyVars.join(", ")} in ${envFilePath(opts.config)}`);
+    } else {
+      console.log(`  1. Secrets in ${envFilePath(opts.config)} are filled`);
+    }
+    const cfgArg = resolve(opts.config) === defaultConfigPath() ? "" : ` -c ${resolve(opts.config)}`;
+    console.log(`  2. ${report.launcherPath} doctor${cfgArg}`);
+    console.log(`  3. ${report.launcherPath} gateway start${cfgArg}`);
+  });
+
+program
+  .command("doctor")
+  .description("Check dependencies, Codex, MCP, secrets and permissions (read-only)")
+  .option("-c, --config <path>", "Path to config file", defaultConfigPath())
+  .option("--mcp <name>", "Plane MCP server name expected in `codex mcp list`", "tou-plane")
+  .action((opts: { config: string; mcp: string }) => {
+    const results = runDoctor({ configPath: opts.config, mcpName: opts.mcp });
+    const width = Math.max(...results.map((r) => r.name.length));
+    for (const r of results) {
+      console.log(`  ${r.status.padEnd(4)}  ${r.name.padEnd(width)}  ${r.detail}`);
+    }
+    const failed = results.filter((r) => r.status === "FAIL").length;
+    console.log("");
+    console.log(failed === 0 ? "All checks passed." : `${failed} check(s) failed.`);
+    process.exit(failed === 0 ? 0 : 1);
+  });
 
 /** Resolve the data directory from config or default */
 function getDataDir(configPath?: string): string {

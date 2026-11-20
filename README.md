@@ -35,6 +35,57 @@ Each conversation runs through a real local CLI engine. OpenCodex manages engine
 - **Telegram Bot Token** from [@BotFather](https://t.me/BotFather)
 - **Claude Code CLI** only if using the optional Claude adapter (`engine.type: claude`)
 
+## One-Step Setup (single Telegram group)
+
+For a bot that serves exactly one Telegram group with a read-only Codex agent.
+Requires Node.js >= 22 and an already authenticated Codex CLI on `PATH`;
+nothing is installed globally.
+
+```bash
+git clone https://github.com/northroute/opencodex.git && cd opencodex
+scripts/setup.sh                    # local build + private config in ~/.opencodex
+$EDITOR ~/.opencodex/.env           # TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
+~/.opencodex/bin/opencodex doctor   # self-check
+~/.opencodex/bin/opencodex gateway start
+```
+
+`scripts/setup.sh` runs `npm ci --ignore-scripts` and `npm run build` inside the
+checkout, then `opencodex setup`, which creates (only if missing):
+
+| File | Mode | Content |
+| --- | --- | --- |
+| `~/.opencodex/` | `0700` | data directory |
+| `config.yaml` | `0600` | one bot, `dmPolicy: disabled`, `groupPolicy: allowlist` for `${TELEGRAM_CHAT_ID}`, `sandbox: read-only`, `approvalPolicy: never`, `maxProcesses: 1`, JSON logs |
+| `.env` | `0600` | `TELEGRAM_BOT_TOKEN=`, `TELEGRAM_CHAT_ID=` (see `.env.example`) |
+| `bin/opencodex` | `0700` | launcher bound to this checkout and the `node` found on `PATH` |
+
+Setup is idempotent: existing `config.yaml`, `.env` and a launcher with different
+content are never overwritten. It only tightens permissions that are too open.
+Options: `--config <path>`, `--bot-name <name>`, `--codex-binary <path>`.
+
+How secrets are handled:
+
+- The gateway loads the `.env` next to `config.yaml` itself; variables already set
+  in the environment take precedence.
+- Every variable named in `.env`, and `TELEGRAM_BOT_TOKEN` always, is withheld from
+  the Codex child process. The rest of the environment (Codex auth, MCP) is passed.
+- A `${VAR}` in `config.yaml` that is unset or empty stops startup with the
+  variable's name (never its value).
+- The gateway runs with `umask 077`, so logs and message history are owner-only.
+
+`opencodex doctor` (read-only, exits non-zero on failure) checks Node, the Codex
+binary, `codex login status`, that the Plane MCP server is listed in
+`codex mcp list` (`--mcp <name>`, default `tou-plane`), `.env`/data dir
+permissions, required variables, the Telegram allowlist, the agent environment,
+and that the local API listens on loopback only.
+
+**Update:** `git pull && scripts/setup.sh`, then `opencodex gateway restart`.
+
+**Migrating from a manual setup:** the `codex-sanitized` wrapper and a shell
+launcher that sources `.env` are no longer needed. Setup keeps them and prints a
+warning; set `engine.codex.binary: "codex"` and remove the old launcher, then
+re-run `scripts/setup.sh` to generate the new one.
+
 ## Install
 
 ```bash
